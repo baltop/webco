@@ -27,8 +27,8 @@ A Python tool for crawling websites and saving their content as markdown files.
 
 1. Create a CSV file named `server.csv` with the following format:
    ```
-   https://example.com/page,Site Name,Category
-   https://another-site.com,Another Site,Another Category
+   https://example.com/page,variable key,Site Name,Category
+   https://another-site.com,variable key,Another Site,Another Category
    ```
 
 2. Run the crawler:
@@ -40,7 +40,8 @@ A Python tool for crawling websites and saving their content as markdown files.
    - Read URLs from `server.csv`
    - Crawl each website
    - Save content as markdown files in the current directory
-   - Files are named with the format: `YYYYMMDD_SiteName_Category.md`
+   - Files are named with the format: `YYYYMMDD_SiteName_varibaleValue.md`
+   - VaribaleValue is number. the key is in csv file. 
 
 ## Output
 
@@ -48,6 +49,7 @@ Each markdown file contains:
 - YAML frontmatter with metadata
 - Title as H1 heading
 - Main content of the webpage
+- Do not contains menu and link.
 
 ## Customization
 
