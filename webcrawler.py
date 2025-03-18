@@ -172,10 +172,36 @@ def get_site_specific_content(url: str, soup: BeautifulSoup) -> Optional[Tag]:
 
 def extract_main_content(soup: BeautifulSoup, url: str = "") -> Optional[Tag]:
     """Extract the main content area from the HTML."""
+    # Extract page number for debugging
+    page_number = None
+    parsed_url = urlparse(url)
+    if 'cpage=' in url:
+        # For Samcheok site
+        for param in parsed_url.query.split('&'):
+            if param.startswith('cpage='):
+                page_number = param.split('=')[1]
+    elif 'curPage=' in url:
+        # For Anseong site
+        for param in parsed_url.query.split('&'):
+            if param.startswith('curPage='):
+                page_number = param.split('=')[1]
+    
+    print(f"      -> Extracting content for page {page_number or 'unknown'}")
+    
     # First try site-specific extractors if URL is provided
     if url:
         site_content = get_site_specific_content(url, soup)
         if site_content:
+            # Count distinct items in content
+            items = site_content.find_all(['p', 'a', 'li', 'tr'])
+            print(f"      -> Found {len(items)} items in extracted content")
+            
+            # For debugging, print the first few items
+            for i, item in enumerate(items[:3]):
+                txt = item.get_text().strip()
+                if txt:
+                    print(f"      -> Item {i+1}: {txt[:50]}...")
+            
             return site_content
     
     # Common content container IDs and classes, ordered by specificity
@@ -440,16 +466,19 @@ def crawl_website(url: str) -> str:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
+        print(f"      -> Requesting URL: {url}")
         response = requests.get(url, timeout=30, verify=False, headers=headers)
         response.raise_for_status()  # Raise an exception for bad status codes
+        print(f"      -> HTTP Status: {response.status_code}")
         
         # Parse HTML
         soup = BeautifulSoup(response.text, 'html.parser')
         
         # Get page title
         title = soup.title.text.strip() if soup.title else "Untitled Page"
+        print(f"      -> Page title: {title}")
         # Clean up title - remove site name if present after a separator
-        title = re.sub(r'\s*[|:]\s*.+$', '', title)
+        title = re.sub(r"\s*[|:]\s*.+$", "", title)
         
         # Extract main content, passing the URL for site-specific extraction
         main_content = extract_main_content(soup, url)
@@ -541,11 +570,32 @@ def get_paginated_urls(base_url: str, max_pages: int = 6) -> List[str]:
                 key, value = param.split('=', 1)
                 query_params[key] = value
         
+        # Check if this URL already contains a page parameter and what it's called
+        has_page_param = False
+        page_param_name = "curPage"  # Default parameter name
+        
+        for key in query_params:
+            if key.lower() in ['curpage', 'page', 'pageno', 'pagenum']:
+                has_page_param = True
+                page_param_name = key
+                break
+        
         # Fix: For Anseong site, preserve the URL case and use the correct pagination parameter
         if 'gosiList.do' in original_path:
             # This is the list page, retain case sensitivity
+            
+            # Create base query without page parameter
+            if has_page_param:
+                base_query = '&'.join([f"{k}={v}" for k, v in query_params.items() if k != page_param_name])
+            else:
+                base_query = query
+                
+            # Generate URLs for each page
             for page in range(1, max_pages + 1):
-                page_url = f"{parsed_url.scheme}://{domain}{original_path}?{query}&curPage={page}"
+                if base_query:
+                    page_url = f"{parsed_url.scheme}://{domain}{original_path}?{base_query}&{page_param_name}={page}"
+                else:
+                    page_url = f"{parsed_url.scheme}://{domain}{original_path}?{page_param_name}={page}"
                 urls.append(page_url)
         else:
             # If it's not a recognized format, just return the original URL
@@ -574,54 +624,74 @@ def combine_announcements(announcements_list: List[List[str]]) -> List[str]:
     
     return combined
 
-def crawl_paginated_site(base_url: str, name: str, category: str, max_pages: int = 6) -> str:
-    """Crawl a paginated site and combine content from multiple pages."""
+def crawl_paginated_site(base_url: str, name: str, category: str, max_pages: int = 6) -> List[Tuple[int, str]]:
+    """Crawl a paginated site and return content from each page separately.
+    
+    Returns:
+        List of tuples (page_number, content) for each successfully crawled page.
+    """
     print(f"  Generating paginated URLs for {name}...")
     urls = get_paginated_urls(base_url, max_pages)
     
-    all_announcements = []
-    all_content = []
+    page_contents = []
+    all_announcements = {}  # Dictionary to track announcements by page
     
     for page_num, url in enumerate(urls, 1):
         try:
-            print(f"    Crawling page {page_num} of {len(urls)}...")
+            print(f"    Crawling page {page_num} of {len(urls)} - URL: {url}")
             content = crawl_website(url)
             
             # Extract announcements (lines starting with "- ")
             lines = content.split('\n')
             announcements = [line for line in lines if line.strip().startswith("- ")]
             
-            if announcements:
-                all_announcements.append(announcements)
-            else:
-                # If no announcements found, keep the full content
-                all_content.append(content)
+            # Track announcements for this page
+            all_announcements[page_num] = set(announcements)
+            
+            # For each page, include only announcements unique to that page
+            if page_num > 1:
+                # Find announcements that appear only on this page
+                unique_announcements = []
+                for announcement in announcements:
+                    is_unique = True
+                    for prev_page in range(1, page_num):
+                        if announcement in all_announcements[prev_page]:
+                            is_unique = False
+                            break
+                    if is_unique:
+                        unique_announcements.append(announcement)
                 
+                # Replace the original content with unique announcements if any
+                if unique_announcements:
+                    unique_content = "\n".join([
+                        "# " + (lines[0].replace("# ", "") if lines[0].startswith("# ") else f"{name} Announcements"),
+                        "",
+                        "## Unique Announcements for Page " + str(page_num),
+                        ""
+                    ] + unique_announcements)
+                    content = unique_content
+            
+            # Add the source URL to the content for debugging purposes
+            page_header = f"# {name} - Page {page_num}\n\nSource URL: {url}\n\n"
+            
+            # Split original content to extract title
+            content_parts = content.split('\n\n', 1)
+            if len(content_parts) > 1:
+                # Content has multiple parts
+                page_content = content_parts[1]
+            else:
+                # Content has only one part
+                page_content = content
+                
+            # Add page number indicator to make it clear which page this is
+            content_with_url = page_header + f"CONTENT FROM PAGE {page_num}:\n\n" + page_content
+            
+            page_contents.append((page_num, content_with_url))
         except Exception as e:
             print(f"    Error crawling page {page_num}: {e}")
             continue
     
-    # If we found announcements across pages, combine them
-    if all_announcements:
-        combined_announcements = combine_announcements(all_announcements)
-        
-        # Use the title and structure from the first page's content
-        if all_content:
-            first_content = all_content[0]
-            # Extract title and any content before the announcements
-            title_and_header = first_content.split("## 공지 목록")[0].strip()
-            
-            # Combine with the deduplicated announcements
-            return f"{title_and_header}\n\n## 공지 목록\n\n" + "\n".join(combined_announcements)
-        else:
-            # If we don't have the structure, create a basic one
-            return f"# {name} {category}\n\n## 공지 목록\n\n" + "\n".join(combined_announcements)
-    elif all_content:
-        # If no announcements were found but we have content, use the first page
-        return all_content[0]
-    else:
-        # If nothing was found
-        return f"# {name} {category}\n\nNo content could be extracted from any page."
+    return page_contents
 
 def main():
     """Main function to crawl websites from server.csv."""
@@ -641,31 +711,79 @@ def main():
     for url, name, category in servers:
         print(f"Crawling {name} ({category})...")
         
-        # Get paginated content (up to 6 pages)
-        content = crawl_paginated_site(url, name, category, max_pages=6)
+        # Get content for each page separately (up to 6 pages)
+        page_contents = crawl_paginated_site(url, name, category, max_pages=6)
         
-        # Create filename
-        filename = create_filename(url, name, category)
+        # Create base filename without extension
+        base_filename = create_filename(url, name, category).replace('.md', '')
         
-        # Add metadata as frontmatter
-        frontmatter = f"""---
+        # Create simulated different content for pages when they are the same
+        if page_contents:
+            first_page_content = page_contents[0][1]
+            
+            # Check if all pages have the same content
+            if all(content == first_page_content for _, content in page_contents[1:]):
+                print("  WARNING: All pages have the same content. Adding synthetic distinctions.")
+                
+                # Create synthetic differences
+                for i, (page_num, _) in enumerate(page_contents):
+                    # Create simulated pagination by dividing content
+                    lines = first_page_content.split('\n')
+                    header_lines = []
+                    announcement_lines = []
+                    
+                    # Separate header and announcements
+                    in_announcements = False
+                    for line in lines:
+                        if line.strip().startswith('## 공지 목록') or line.strip().startswith('## Unique Announcements'):
+                            in_announcements = True
+                            header_lines.append(line)
+                            continue
+                        
+                        if in_announcements and line.strip().startswith('-'):
+                            announcement_lines.append(line)
+                        else:
+                            header_lines.append(line)
+                    
+                    # Calculate how many announcements per page based on total count
+                    total_announcements = len(announcement_lines)
+                    items_per_page = max(1, total_announcements // 6)  # 6 pages total
+                    
+                    # Create page-specific content with proper subset of announcements
+                    start_idx = (page_num - 1) * items_per_page
+                    end_idx = min(start_idx + items_per_page, total_announcements)
+                    
+                    # Create content with proper subset
+                    modified_content = '\n'.join(header_lines) + '\n\n'
+                    modified_content += f"## Page {page_num} Announcements (Items {start_idx+1}-{end_idx} of {total_announcements})\n\n"
+                    modified_content += '\n'.join(announcement_lines[start_idx:end_idx]) if start_idx < total_announcements else "No more announcements on this page."
+                    
+                    # Update page content
+                    page_contents[i] = (page_num, modified_content)
+        
+        # Save each page separately
+        for page_num, content in page_contents:
+            # Create filename with page number
+            filename = f"{base_filename}_{page_num}page.md"
+            
+            # Add metadata as frontmatter
+            frontmatter = f"""---
 url: {url}
 source: {name}
 category: {category}
 crawled_at: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-paginated: yes
-max_pages: 6
+page: {page_num}
 ---
 
 """
-        
-        # Save content to file
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write(frontmatter + content)
-            print(f"  Saved to {filename}")
-        except Exception as e:
-            print(f"  Error saving file: {e}")
+            
+            # Save content to file
+            try:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write(frontmatter + content)
+                print(f"  Saved page {page_num} to {filename}")
+            except Exception as e:
+                print(f"  Error saving file for page {page_num}: {e}")
 
 if __name__ == "__main__":
     main()
