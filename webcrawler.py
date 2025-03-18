@@ -109,7 +109,7 @@ def main():
             
             print(f"Crawling: {current_url}")
             content = crawl_page(current_url)
-            
+            print(content)
             if content:
                 processed_text = process_content(content)
                 
