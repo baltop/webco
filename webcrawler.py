@@ -7,6 +7,8 @@ from bs4 import BeautifulSoup
 from typing import List, Tuple
 import time
 import random
+import os
+from datetime import datetime
 
 def read_urls_from_csv(csv_file: str) -> List[Tuple[str, str, str, str]]:
     """Read URLs and parameters from CSV file."""
@@ -113,8 +115,18 @@ def main():
             if content:
                 processed_text = process_content(content)
                 
-                # Save the processed text to a file
-                output_file = f"{site_name}_{category}_{current_value}.txt"
+                # Create directory structure for saving files
+                # Main directory with site name (지자체명)
+                site_dir = os.path.join(os.getcwd(), site_name)
+                os.makedirs(site_dir, exist_ok=True)
+                
+                # Current date directory (YYYY-MM-DD)
+                current_date = datetime.now().strftime("%Y-%m-%d")
+                date_dir = os.path.join(site_dir, current_date)
+                os.makedirs(date_dir, exist_ok=True)
+                
+                # Save the processed text to a file with only the index number as name
+                output_file = os.path.join(date_dir, f"{current_value}.md")
                 with open(output_file, 'w', encoding='utf-8') as f:
                     f.write(processed_text)
                 
