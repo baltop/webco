@@ -10,15 +10,15 @@ import random
 import os
 from datetime import datetime
 
-def read_urls_from_csv(csv_file: str) -> List[Tuple[str, str, str, str]]:
+def read_urls_from_csv(csv_file: str) -> List[Tuple[str, str, str, str, str, str]]:
     """Read URLs and parameters from CSV file."""
     urls = []
     with open(csv_file, 'r', encoding='utf-8') as file:
         csv_reader = csv.reader(file)
         for row in csv_reader:
-            if len(row) >= 4:
-                url, param_name, site_name, category = row
-                urls.append((url, param_name, site_name, category))
+            if len(row) >= 6:
+                url, param_name, site_name, category, start_marker, end_marker = row
+                urls.append((url, param_name, site_name, category, start_marker, end_marker))
     return urls
 
 def extract_param_value(url: str, param_name: str) -> int:
@@ -71,8 +71,8 @@ def crawl_page(url: str) -> str:
         print(f"Error crawling {url}: {e}")
         return ""
 
-def process_content(content: str) -> str:
-    """Process the webpage content."""
+def process_content(content: str, start_marker: str, end_marker: str) -> str:
+    """Process the webpage content and reduce file size using markers."""
     try:
         soup = BeautifulSoup(content, 'html.parser')
         # Remove script and style elements
@@ -86,7 +86,22 @@ def process_content(content: str) -> str:
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
         # Drop blank lines
         text = '\n'.join(chunk for chunk in chunks if chunk)
-        return text
+        
+        # Apply start and end markers to reduce file size
+        reduced_text = ""
+        start_found = False
+        for line in text.splitlines():
+            if not start_found and start_marker in line:
+                start_found = True
+                continue
+            
+            if start_found and end_marker in line:
+                break
+                
+            if start_found:
+                reduced_text += line + "\n"
+        
+        return reduced_text
     except Exception as e:
         print(f"Error processing content: {e}")
         return ""
@@ -95,8 +110,9 @@ def main():
     csv_file = "server.csv"
     urls = read_urls_from_csv(csv_file)
     
-    for url, param_name, site_name, category in urls:
+    for url, param_name, site_name, category, start_marker, end_marker in urls:
         print(f"Processing {site_name} ({category})")
+        print(f"Using start marker: '{start_marker}' and end marker: '{end_marker}'")
         
         # Extract initial parameter value
         initial_value = extract_param_value(url, param_name)
@@ -111,9 +127,8 @@ def main():
             
             print(f"Crawling: {current_url}")
             content = crawl_page(current_url)
-            print(content)
             if content:
-                processed_text = process_content(content)
+                processed_text = process_content(content, start_marker, end_marker)
                 
                 # Create directory structure for saving files
                 # Main directory with site name (지자체명)
