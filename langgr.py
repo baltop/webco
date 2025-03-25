@@ -2,15 +2,17 @@ from typing import Annotated, List, Dict, TypedDict
 from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from smolagents import CodeAgent, HfApiModel
+from smolagents import CodeAgent, LiteLLMModel
+
+
 
 # LangGraph 상태 정의
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     fibonacci_number: int
 
-# smolagents 모델 초기화 (본인의 허깅페이스 토큰이 필요할 수 있습니다)
-model = HfApiModel()
+
+model = LiteLLMModel(model_id="anthropic/claude-3-5-sonnet-latest") 
 
 # smolagents 에이전트를 실행하는 LangGraph 노드 함수
 def calculate_fibonacci(state: AgentState) -> Dict[str, int]:
@@ -18,6 +20,11 @@ def calculate_fibonacci(state: AgentState) -> Dict[str, int]:
     # 간단한 도구 없이 CodeAgent 초기화
     agent = CodeAgent(tools=[], model=model, add_base_tools=True)
     result = agent.run(user_query)
+
+    print("#################### RESULT ####################")
+    print(str(result))
+    print("###############################################")
+    result = str(result)
     # 결과에서 Fibonacci 숫자를 추출 (실제 구현에서는 에이전트의 출력 방식에 따라 파싱이 필요할 수 있습니다)
     try:
         number = int(result.split(' ')[-1].replace('.', '')) # 간단한 파싱 예시
@@ -43,5 +50,11 @@ graph = workflow.compile()
 # 워크플로우 실행
 inputs = {"messages": [HumanMessage(content="Could you give me the 10th number in the Fibonacci sequence?")], "fibonacci_number": 0}
 for output in graph.stream(inputs):
-    if "fibonacci_number" in output:
-        print(f"Fibonacci Number: {output['fibonacci_number']}")
+    print("#################### OUTPUT ####################")
+    print(str(output))
+    out_str = str(output)
+    print(type(output))
+    print("###############################################")
+    if "fibonacci_number" in out_str:
+        # print(f"Fibonacci Number: {output['fibonacci_number']}")
+        print(out_str)
