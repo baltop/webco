@@ -9,6 +9,7 @@ import time
 import random
 import os
 from datetime import datetime
+from markdownify import markdownify
 
 def read_urls_from_csv(csv_file: str) -> List[Tuple[str, str, str, str, str, str]]:
     """Read URLs and parameters from CSV file."""
@@ -72,25 +73,20 @@ def crawl_page(url: str) -> str:
         return ""
 
 def process_content(content: str, start_marker: str, end_marker: str) -> str:
-    """Process the webpage content and reduce file size using markers."""
+    """Process the webpage content to markdown format and reduce file size using markers."""
     try:
         soup = BeautifulSoup(content, 'html.parser')
         # Remove script and style elements
         for script in soup(["script", "style"]):
             script.decompose()
-        # Get text
-        text = soup.get_text()
-        # Break into lines and remove leading and trailing space on each
-        lines = (line.strip() for line in text.splitlines())
-        # Break multi-headlines into a line each
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        # Drop blank lines
-        text = '\n'.join(chunk for chunk in chunks if chunk)
+            
+        # Convert to markdown with links preserved
+        markdown_text = markdownify(str(soup), heading_style="ATX")
         
         # Apply start and end markers to reduce file size
         reduced_text = ""
         start_found = False
-        for line in text.splitlines():
+        for line in markdown_text.splitlines():
             if not start_found and start_marker in line:
                 start_found = True
                 continue
